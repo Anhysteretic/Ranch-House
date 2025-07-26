@@ -19,18 +19,24 @@ image = cv.imread(args["image"])
 print(f"[INFO] Resizing image to {STANDARD_WIDTH}x{STANDARD_HEIGHT}...")
 image = cv.resize(image, (STANDARD_WIDTH, STANDARD_HEIGHT))
 gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+print(f"[INFO] Grayscale image shape: {gray.shape}, dtype: {gray.dtype}")
+print(f"[INFO] Grayscale image min pixel value: {gray.min()}")
+print(f"[INFO] Grayscale image max pixel value: {gray.max()}")
+cv.imwrite("grayscale_input_for_debug.png", gray)
+print("[INFO] Grayscale input image saved as grayscale_input_for_debug.png")
 
 # define the AprilTag detector options and then detect the AprilTags
 #in the input image
 print("[INFO] detecting AprilTags...")
 options = apriltag.DetectorOptions(
-    families="tag25h9", # Or "tag36h11" if you're testing that family
-    border=1,           # Standard border size for AprilTags
-    nthreads=1,         # Use a single thread for simplicity initially
-    quad_decimate=1.0,  # Process at full resolution (since your image is clean and large)
-    quad_sigma=0.0,     # No Gaussian blur, as your image is clean
-    decode_cp_bits=0,   # Use default or 0 for common tags
-    debug=True          # Crucial for seeing the debug image
+    families="tag36h11",
+    border=1,            # Standard border size, usually 1 pixel wide
+    nthreads=1,          # Good for consistent debugging
+    quad_decimate=1.0,   # Process at full resolution, no downsampling
+    quad_blur=0.0,       # No blurring (very important for clear tags)
+    refine_edges=True,   # Improves accuracy by refining quad corners
+    decode_sharpening=0.0, # No sharpening - often best for pristine tags, or sometimes -0.5
+    debug=True           # Keep debug on for the dimg output
 )
 apriltag_lib_search_path = [os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'build', 'lib')]
 detector = apriltag.Detector(options, searchpath=apriltag_lib_search_path)
@@ -65,4 +71,7 @@ for r in results:
 
     #show the output image after AprilTag detection
 cv.imshow("Image", image)
+if dimg is not None: # Check if dimg was actually returned
+    # The debug image is often grayscale, so ensure it's displayed correctly
+    cv.imshow("Debug Image", dimg)
 cv.waitKey(0)
