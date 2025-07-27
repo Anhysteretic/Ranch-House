@@ -18,36 +18,35 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {'video_device': '/dev/video5'}, 
+            
             {'image_width': 1280},
             {'image_height': 720},
             {'framerate': 60.0},
             {'pixel_format': 'mjpeg2rgb'},
             {'camera_name': 'logitech_brio'},
             
-            # --- CORRECTED User and Camera Controls ---
+            # --- User Controls (from your v4l2-ctl log) ---
             {'brightness': 50},
             {'contrast': 128},
             {'saturation': 128},
+            {'white_balance_automatic': 1},
             {'gain': 0},
+            {'power_line_frequency': 2},
+            {'white_balance_temperature': 6560},
             {'sharpness': 128},
             {'backlight_compensation': 1},
-            {'power_line_frequency': 2}, 
             
-            # Using the CORRECT parameter names now
-            {'white_balance_automatic': 1},
-            {'white_balance_temperature': 6510},
-            
-            {'auto_exposure': 3}, 
-            {'exposure_time_absolute': 156}, 
+            # --- Camera Controls (from your v4l2-ctl log) ---
+            {'auto_exposure': 3},
+            {'exposure_time_absolute': 156},
             {'exposure_dynamic_framerate': 1},
-            
-            {'focus_automatic_continuous': 1},
-            {'focus_absolute': 50}, 
-            
             {'pan_absolute': 0},
             {'tilt_absolute': 0},
+            {'focus_absolute': 40},
+            {'focus_automatic_continuous': 1},
             {'zoom_absolute': 100},
             
+            # --- Logitech-specific LED Controls ---
             {'led1_mode': 3},
             {'led1_frequency': 20},
         ]
