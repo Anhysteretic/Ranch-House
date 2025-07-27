@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'brio_subscriber = brio.brio_subscriber:main',
+            'camera_tuner = brio.tuning.camera_tuner:main',
         ],
     },
 )
