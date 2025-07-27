@@ -10,7 +10,7 @@ def generate_launch_description():
         name='brio_cam_publisher',
         output='screen',
         parameters=[
-            {'video_device': '/dev/video4'},
+            {'video_device': '/dev/video5'},
             {'image_width': 1920},
             {'image_height': 1080},
             {'pixel_format': 'yuyv'},
@@ -29,4 +29,4 @@ def generate_launch_description():
     return LaunchDescription([
         usb_cam_node,
         brio_subscriber_node
-    ])
+    ])  
