@@ -1,43 +1,31 @@
 #!/usr/bin/env python3
+# --- CORRECTED AND ROBUST VERSION ---
 
 import rclpy
 from rclpy.node import Node
-from rclpy.parameter import Parameter
-from rcl_interfaces.srv import SetParameters, GetParameters
-from rcl_interfaces.msg import Parameter as ParameterMsg, ParameterType, ParameterValue
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
+import subprocess
 
 class CameraTunerNode(Node):
-    """
-    The definitive, comprehensive tuner script.
-    Provides a GUI with controls for ALL camera parameters found in the v4l2 log.
-    """
     def __init__(self):
         super().__init__('camera_tuner_display')
 
-        self.cam_node_name = '/camera/usb_cam'
+        # It's highly recommended to use your permanent udev rule link, 
+        # e.g., /dev/logitech_brio_rgb, to avoid issues if the number changes.
+        self.device_path = '/dev/video0'
         self.image_topic = '/camera/image_raw'
         self.control_window_name = 'Camera Control Panel'
         self.video_window_name = 'Live Video Feed'
 
-        self.get_logger().info(f"Starting comprehensive camera tuner for node '{self.cam_node_name}'")
-        self.bridge = CvBridge()
+        self.get_logger().info(f"Starting v4l2-based camera tuner for device '{self.device_path}'")
 
-        self.set_param_client = self.create_client(SetParameters, f'{self.cam_node_name}/set_parameters')
-        self.get_param_client = self.create_client(GetParameters, f'{self.cam_node_name}/get_parameters')
-        
-        while not self.set_param_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().warn(f"Service '{self.cam_node_name}/set_parameters' not available, waiting...")
-        
+        self.bridge = CvBridge()
         self.subscription = self.create_subscription(Image, self.image_topic, self.image_callback, 10)
-        
-        # --- COMPLETE PARAMETER DEFINITIONS ---
-        # This dictionary now matches your full v4l2-ctl output
+
         self.param_definitions = {
-            # --- User Controls ---
             'brightness': {'min': 0, 'max': 255},
             'contrast': {'min': 0, 'max': 255},
             'saturation': {'min': 0, 'max': 255},
@@ -46,95 +34,83 @@ class CameraTunerNode(Node):
             'white_balance_automatic': {'min': 0, 'max': 1},
             'white_balance_temperature': {'min': 2000, 'max': 7500},
             'backlight_compensation': {'min': 0, 'max': 1},
-            'power_line_frequency': {'min': 0, 'max': 2}, # 0:dis, 1:50Hz, 2:60Hz
-            
-            # --- Camera Controls ---
+            'power_line_frequency': {'min': 0, 'max': 2},
             'focus_automatic_continuous': {'min': 0, 'max': 1},
             'focus_absolute': {'min': 0, 'max': 255},
-            'auto_exposure': {'min': 1, 'max': 3}, # 1:Manual, 3:Aperture Priority
-            'exposure_time_absolute': {'min': 3, 'max': 2047},
+            'auto_exposure': {'min': 1, 'max': 3}, # 1=Manual, 3=Auto
+            'exposure_time_absolute': {'min': 3, 'max': 2047}, # CORRECTED NAME from log
             'exposure_dynamic_framerate': {'min': 0, 'max': 1},
             'zoom_absolute': {'min': 100, 'max': 500},
-            
-            # These are less common to tune, but included for completeness
-            'pan_absolute': {'min': -36000, 'max': 36000},
-            'tilt_absolute': {'min': -36000, 'max': 36000},
-
-            # --- Logitech LED Controls ---
-            'led1_mode': {'min': 0, 'max': 3}, # 0:Off, 1:On, 2:Blink, 3:Auto
-            'led1_frequency': {'min': 0, 'max': 255},
+            'led1_mode': {'min': 0, 'max': 3},
+            'led1_frequency': {'min': 0, 'max': 255}
         }
-
         self.create_gui()
-        self.get_logger().info("GUI created. Fetching initial camera parameters in 1 second...")
-        
-        self.initial_param_fetch_timer = self.create_timer(1.0, self.fetch_initial_parameters)
 
     def create_gui(self):
-        control_panel_img = np.zeros((1, 550, 3), np.uint8) # Made window slightly wider
+        control_panel_img = np.zeros((1, 600, 3), np.uint8)
         cv2.namedWindow(self.control_window_name)
         cv2.imshow(self.control_window_name, control_panel_img)
 
         for name, ranges in self.param_definitions.items():
-            # Special case for pan/tilt due to large range. Can't use a trackbar.
-            if name in ['pan_absolute', 'tilt_absolute']:
-                self.get_logger().info(f"Control '{name}' has too large a range for a trackbar and must be set via command line.")
-                continue
-
-            cv2.createTrackbar(name, self.control_window_name, ranges['min'], ranges['max'],
+            # Get the current value to set the slider's initial position
+            default_val = self.get_current_param_value(name, fallback=ranges['min'])
+            cv2.createTrackbar(name, self.control_window_name, default_val, ranges['max'],
                                lambda val, n=name: self.set_camera_parameter(n, val))
-        self.get_logger().info("Press 'q' in the video window to quit.")
+        self.get_logger().info("Camera tuner GUI created. Press 'q' in the video window to quit.")
 
-    def fetch_initial_parameters(self):
-        self.destroy_timer(self.initial_param_fetch_timer)
-        param_names = list(self.param_definitions.keys())
-        # We can't get/set pan and tilt from the GUI, so remove them from the fetch list
-        param_names.remove('pan_absolute')
-        param_names.remove('tilt_absolute')
-        
-        req = GetParameters.Request()
-        req.names = param_names
-        future = self.get_param_client.call_async(req)
-        future.add_done_callback(self.on_initial_parameters_fetched)
-
-    def on_initial_parameters_fetched(self, future):
+    def get_current_param_value(self, param_name, fallback=0):
         try:
-            response = future.result()
-            self.get_logger().info("Successfully fetched initial parameters. Updating GUI.")
-            for param in response.values:
-                if param.type == ParameterType.PARAMETER_INTEGER:
-                    self.get_logger().info(f"  - Setting slider for '{param.name}' to {param.integer_value}")
-                    cv2.setTrackbarPos(param.name, self.control_window_name, param.integer_value)
+            result = subprocess.run(
+                ['v4l2-ctl', '-d', self.device_path, '--get-ctrl', param_name],
+                capture_output=True, text=True, check=True
+            )
+            # The output is "param_name: value", so we split on ':'
+            value_str = result.stdout.strip().split(':')[1].strip()
+            return int(value_str)
         except Exception as e:
-            self.get_logger().error(f"Failed to fetch initial parameters: {e}")
+            # This is expected for inactive controls, it's not a critical error
+            self.get_logger().debug(f"Could not get initial value for '{param_name}' (likely inactive). Using fallback. Error: {e}")
+            return fallback
+
+    def set_camera_parameter(self, param_name, value):
+        # --- THIS IS THE NEW "SMART" LOGIC ---
+        # If we are setting a manual value, first ensure the corresponding auto mode is OFF
+        if param_name == 'exposure_time_absolute':
+            self._execute_v4l2_command('auto_exposure', 1) # Set to Manual Mode
+        elif param_name == 'focus_absolute':
+            self._execute_v4l2_command('focus_automatic_continuous', 0) # Turn off auto focus
+        elif param_name == 'white_balance_temperature':
+            self._execute_v4l2_command('white_balance_automatic', 0) # Turn off auto white balance
+
+        # Now, set the actual parameter value
+        self._execute_v4l2_command(param_name, value)
+    
+    def _execute_v4l2_command(self, param_name, value):
+        """A helper function to run a single v4l2-ctl command."""
+        try:
+            cmd = ['v4l2-ctl', '-d', self.device_path, '--set-ctrl', f'{param_name}={int(value)}']
+            subprocess.run(cmd, check=True, capture_output=True)
+            self.get_logger().info(f"Successfully set '{param_name}' to {value}")
+        except subprocess.CalledProcessError as e:
+            # Capture and log the specific error from v4l2-ctl
+            error_message = e.stderr.strip()
+            self.get_logger().error(f"Failed to set '{param_name}': {error_message}")
+        except Exception as e:
+            self.get_logger().error(f"An unexpected error occurred while setting '{param_name}': {e}")
+
 
     def image_callback(self, msg):
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             cv2.imshow(self.video_window_name, cv_image)
-            
-            # We still need waitKey to process GUI events
             if cv2.waitKey(1) & 0xFF == ord('q'):
-                self.get_logger().info("Shutting down...")
-                self.destroy_node()
-                cv2.destroyAllWindows()
-                rclpy.shutdown()
+                self.get_logger().info("Quitting camera tuner...")
+                self.destroy_node(); cv2.destroyAllWindows(); rclpy.shutdown()
         except Exception as e:
-            self.get_logger().error(f'Failed to process image: {e}')
-
-    def set_camera_parameter(self, param_name, value):
-        req = SetParameters.Request()
-        param_msg = ParameterMsg()
-        param_msg.name = param_name
-        param_msg.value = ParameterValue(type=ParameterType.PARAMETER_INTEGER, integer_value=int(value))
-        req.parameters = [param_msg]
-        self.set_param_client.call_async(req)
-        self.get_logger().info(f"Setting '{param_name}': {value}")
+            self.get_logger().error(f"Failed to process image: {e}")
 
 def main(args=None):
-    rclpy.init(args=args)
-    camera_tuner_node = CameraTunerNode()
-    rclpy.spin(camera_tuner_node)
-    
+    rclpy.init(args=args); node = CameraTunerNode(); rclpy.spin(node)
+
 if __name__ == '__main__':
     main()

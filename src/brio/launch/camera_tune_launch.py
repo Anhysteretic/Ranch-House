@@ -1,15 +1,34 @@
 # ~/my_robot_ws/src/my_robot_bringup/launch/april_camera.launch.py
+# --- FINAL SAFE VERSION ---
 
 from launch import LaunchDescription
+from launch.actions import ExecuteProcess
 from launch_ros.actions import Node
 
 def generate_launch_description():
     """
-    This launch file starts the usb_cam node with a complete and explicit
-    set of parameters based on a known working v4l2-ctl configuration.
-    It also launches the camera_tuner for live viewing.
+    This launch file sets the camera to a stable, default AUTOMATIC state,
+    then launches the ROS driver and the tuner GUI.
     """
-    
+
+    camera_device = '/dev/video0'
+
+    set_camera_controls = ExecuteProcess(
+        cmd=[
+            'v4l2-ctl', '-d', camera_device,
+            '--set-ctrl', 'brightness=128',
+            '--set-ctrl', 'contrast=128',
+            '--set-ctrl', 'gain=0',
+            '--set-ctrl', 'sharpness=128',
+            '--set-ctrl', 'backlight_compensation=1',
+            '--set-ctrl', 'white_balance_automatic=1',
+            '--set-ctrl', 'auto_exposure=3',
+            '--set-ctrl', 'focus_automatic_continuous=1'
+        ],
+        shell=False,
+        output='screen'
+    )
+
     usb_cam_node = Node(
         package='usb_cam',
         executable='usb_cam_node_exe',
@@ -17,51 +36,24 @@ def generate_launch_description():
         namespace='camera',
         output='screen',
         parameters=[
-            {'video_device': '/dev/video5'}, 
-            
+            {'video_device': camera_device},
             {'image_width': 1280},
             {'image_height': 720},
             {'framerate': 60.0},
             {'pixel_format': 'mjpeg2rgb'},
-            {'camera_name': 'logitech_brio'},
-            
-            # --- User Controls (from your v4l2-ctl log) ---
-            {'brightness': 50},
-            {'contrast': 128},
-            {'saturation': 128},
-            {'white_balance_automatic': 1},
-            {'gain': 0},
-            {'power_line_frequency': 2},
-            {'white_balance_temperature': 6560},
-            {'sharpness': 128},
-            {'backlight_compensation': 1},
-            
-            # --- Camera Controls (from your v4l2-ctl log) ---
-            {'auto_exposure': 3},
-            {'exposure_time_absolute': 156},
-            {'exposure_dynamic_framerate': 1},
-            {'pan_absolute': 0},
-            {'tilt_absolute': 0},
-            {'focus_absolute': 40},
-            {'focus_automatic_continuous': 1},
-            {'zoom_absolute': 100},
-            
-            # --- Logitech-specific LED Controls ---
-            {'led1_mode': 3},
-            {'led1_frequency': 20},
+            {'camera_frame_id': 'camera'}
         ]
     )
-    
-    # This node is presumably your camera_tuner.py script for live display
+
     camera_tune_node = Node(
-        package='brio', # Make sure 'brio' is the correct name of your package
+        package='brio',
         executable='camera_tuner',
         name='camera_tuner_display',
         output='screen'
     )
 
-    # The launch description returns the list of nodes to start.
     return LaunchDescription([
+        set_camera_controls,
         usb_cam_node,
         camera_tune_node
     ])
