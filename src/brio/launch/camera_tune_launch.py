@@ -11,7 +11,7 @@ def generate_launch_description():
     then launches the ROS driver and the tuner GUI.
     """
 
-    camera_device = '/dev/video0'
+    camera_device = '/dev/video4'
 
     set_camera_controls = ExecuteProcess(
         cmd=[

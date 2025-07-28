@@ -14,7 +14,7 @@ class CameraTunerNode(Node):
         super().__init__('camera_tuner_display')
 
         # Best practice: use your permanent udev rule link
-        self.device_path = '/dev/video0' # Or '/dev/video0'
+        self.device_path = '/dev/video4' # Or '/dev/video0'
         self.image_topic = '/camera/image_raw'
         self.control_window_name = 'Camera Control Panel'
         self.video_window_name = 'Live Video Feed'
