@@ -9,12 +9,12 @@ def generate_launch_description():
             name='brio_stream',
             output='screen',
             parameters=[
-                {'video_device': '/dev/video4'},
+                {'video_device': '/dev/video5'},
                 {'image_width': 1920},
                 {'image_height': 1080},
                 {'pixel_format': 'yuyv'},
                 {'camera_frame_id': 'camera_link'},
                 {'io_method': 'mmap'},
-            ] 
+            ]
         )
     ])
