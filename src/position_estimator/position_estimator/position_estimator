@@ -1,0 +1,89 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Imu
+from px4_msgs.msg import VehicleOpticalFlowVel
+from geometry_msgs.msg import PoseStamped
+import numpy as np
+import tf_transformations
+
+class PositionEstimator(Node):
+    def __init__(self):
+        super().__init__('position_estimator')
+        # Subscribers
+        self.imu_sub = self.create_subscription(
+            Imu,
+            '/fmu/out/vehicle_imu',  # Change to your IMU topic
+            self.imu_callback,
+            10
+        )
+        self.flow_sub = self.create_subscription(
+            VehicleOpticalFlowVel,
+            '/fmu/out/vehicle_optical_flow_vel',  # Change to your optical flow topic
+            self.flow_callback,
+            10
+        )
+        # Publisher
+        self.pose_pub = self.create_publisher(
+            PoseStamped,
+            '/drone/position_estimate',
+            10
+        )
+        # State
+        self.last_time = self.get_clock().now()
+        self.position = np.zeros(3)  # x, y, z in world frame
+        self.orientation_q = np.array([0, 0, 0, 1])  # quaternion
+        self.flow_velocity = np.zeros(3)  # vx, vy, vz in body frame
+
+    def imu_callback(self, msg: Imu):
+        # Update orientation from IMU
+        self.orientation_q = np.array([
+            msg.orientation.x,
+            msg.orientation.y,
+            msg.orientation.z,
+            msg.orientation.w
+        ])
+        self.publish_pose()
+
+    def flow_callback(self, msg: VehicleOpticalFlowVel):
+        # Update velocity from optical flow (body frame)
+        self.flow_velocity = np.array([
+            msg.velocity[0],  # vx
+            msg.velocity[1],  # vy
+            msg.velocity[2] if len(msg.velocity) > 2 else 0.0  # vz
+        ])
+        # Integrate velocity to update position
+        now = self.get_clock().now()
+        dt = (now - self.last_time).nanoseconds * 1e-9
+        self.last_time = now
+        # Rotate velocity to world frame using current orientation
+        R = tf_transformations.quaternion_matrix(self.orientation_q)[:3, :3]
+        vel_world = R @ self.flow_velocity
+        self.position += vel_world * dt
+        self.publish_pose()
+
+    def publish_pose(self):
+        pose = PoseStamped()
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.header.frame_id = "world"
+        pose.pose.position.x = float(self.position[0])
+        pose.pose.position.y = float(self.position[1])
+        pose.pose.position.z = float(self.position[2])
+        pose.pose.orientation.x = float(self.orientation_q[0])
+        pose.pose.orientation.y = float(self.orientation_q[1])
+        pose.pose.orientation.z = float(self.orientation_q[2])
+        pose.pose.orientation.w = float(self.orientation_q[3])
+        self.pose_pub.publish(pose)
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = PositionEstimator()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,96 @@
+import rclpy
+from rclpy.node import Node
+from px4_msgs.msg import SensorCombined, VehicleOpticalFlow
+from geometry_msgs.msg import PoseStamped
+import numpy as np
+import tf_transformations
+
+
+class PositionEstimator(Node):
+    def __init__(self):
+        super().__init__('position_estimator')
+
+        # Subscribers
+        self.imu_sub = self.create_subscription(
+            SensorCombined,
+            '/fmu/out/sensor_combined',
+            self.imu_callback,
+            10
+        )
+
+        self.flow_sub = self.create_subscription(
+            VehicleOpticalFlow,
+            '/fmu/out/vehicle_optical_flow',
+            self.flow_callback,
+            10
+        )
+
+        # Publisher
+        self.pose_pub = self.create_publisher(
+            PoseStamped,
+            '/drone/position_estimate',
+            10
+        )
+
+        # State
+        self.last_time = self.get_clock().now()
+        self.position = np.zeros(3)  # [x, y, z] in world frame
+        self.orientation_q = np.array([0.0, 0.0, 0.0, 1.0])  # Identity quaternion
+
+    def imu_callback(self, msg: SensorCombined):
+        # Placeholder: In a real system, you'd compute orientation from gyro/accel
+        # For now, assume fixed flat orientation (quaternion [0, 0, 0, 1])
+        self.orientation_q = np.array([0.0, 0.0, 0.0, 1.0])
+
+    def flow_callback(self, msg: VehicleOpticalFlow):
+        dt = msg.integration_timespan_us * 1e-6  # convert microseconds to seconds
+        if dt <= 0.0:
+            self.get_logger().warn('Invalid integration time from optical flow.')
+            return
+
+        # Compute body-frame velocity from pixel flow
+        flow_velocity_body = np.array([
+            msg.pixel_flow[0] / dt,
+            msg.pixel_flow[1] / dt,
+            0.0  # optical flow can't measure Z velocity
+        ])
+
+        # Rotate to world frame using current orientation
+        R = tf_transformations.quaternion_matrix(self.orientation_q)[:3, :3]
+        velocity_world = R @ flow_velocity_body
+
+        # Integrate to update position
+        self.position += velocity_world * dt
+        self.publish_pose()
+
+    def publish_pose(self):
+        pose = PoseStamped()
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.header.frame_id = "world"
+
+        pose.pose.position.x = float(self.position[0])
+        pose.pose.position.y = float(self.position[1])
+        pose.pose.position.z = float(self.position[2])
+
+        pose.pose.orientation.x = float(self.orientation_q[0])
+        pose.pose.orientation.y = float(self.orientation_q[1])
+        pose.pose.orientation.z = float(self.orientation_q[2])
+        pose.pose.orientation.w = float(self.orientation_q[3])
+
+        self.pose_pub.publish(pose)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = PositionEstimator()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
